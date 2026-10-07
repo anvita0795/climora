@@ -35,6 +35,8 @@ import {
   CartesianGrid,
   ReferenceLine,
 } from 'recharts';
+import { ClimoraApi } from '../../api/client';
+import { LiveBadge, DemoBadge } from '../../components/ui/LiveBadge';
 import {
   MOCK_RISK_KPIS,
   MOCK_ANOMALY_TIMELINE,
@@ -62,6 +64,11 @@ export const RiskPage: React.FC = () => {
   const [anomalyType, setAnomalyType] = useState<string>('All Types');
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
 
+  // Live Data States
+  const [anomalies, setAnomalies] = useState<any[]>(MOCK_RECENT_ANOMALIES);
+  const [hotspots, setHotspots] = useState<any | null>(null);
+  const [isLive, setIsLive] = useState<boolean>(false);
+
   // Mapbox GL State & Refs
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<mapboxgl.Map | null>(null);
@@ -82,6 +89,30 @@ export const RiskPage: React.FC = () => {
   const timeRangeOptions = ['Last 1 Year', 'Last 3 Years', 'Last 5 Years', 'Last 10 Years'];
   const typeOptions = ['All Types', 'Heat Wave', 'Cold Spike', 'Heavy Rainfall', 'Drought', 'Extreme Wind'];
   const riskLevelFilterOptions = ['All Levels', 'High Risk', 'Medium Risk', 'Low Risk', 'Normal'];
+
+  const fetchRiskData = async () => {
+    try {
+      const [anomRes, geoRes] = await Promise.all([
+        ClimoraApi.getAnomalies().catch(() => null),
+        ClimoraApi.getGeoJSONHotspots().catch(() => null),
+      ]);
+      if (anomRes?.anomalies && anomRes.anomalies.length > 0) {
+        setAnomalies(anomRes.anomalies);
+        setIsLive(true);
+      }
+      if (geoRes?.features && geoRes.features.length > 0) {
+        setHotspots(geoRes);
+        setIsLive(true);
+      }
+    } catch (e) {
+      console.warn('Risk API fetch failed, fallback active:', e);
+      setIsLive(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRiskData();
+  }, [selectedLocation, timeRange]);
 
   // Initialize Mapbox map
   useEffect(() => {
@@ -110,16 +141,25 @@ export const RiskPage: React.FC = () => {
     };
   }, []);
 
-  // Update map markers when filters or map state change
+  // Update map markers when filters, map state, or live hotspots arrive
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !isMapLoaded) return;
 
-    // Clear previous markers
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = [];
 
-    const filteredHotspots = MOCK_MAP_HOTSPOTS.filter((spot) => {
+    const activeHotspots = hotspots?.features
+      ? hotspots.features.map((f: any) => ({
+          name: f.properties?.name || 'Hotspot Zone',
+          lat: f.geometry?.coordinates?.[1] || 13.0827,
+          lng: f.geometry?.coordinates?.[0] || 80.2707,
+          riskLevel: f.properties?.riskLevel || 'High',
+          color: f.properties?.color || '#FF3B3B',
+        }))
+      : MOCK_MAP_HOTSPOTS;
+
+    const filteredHotspots = activeHotspots.filter((spot: any) => {
       if (selectedRiskLevelFilter === 'All Levels') return true;
       const spotFilterName = spot.riskLevel.toLowerCase() + ' risk';
       return (
@@ -128,7 +168,7 @@ export const RiskPage: React.FC = () => {
       );
     });
 
-    filteredHotspots.forEach((spot) => {
+    filteredHotspots.forEach((spot: any) => {
       const el = document.createElement('div');
       el.className = 'group relative flex items-center justify-center cursor-pointer';
       el.style.width = '30px';
@@ -149,7 +189,7 @@ export const RiskPage: React.FC = () => {
 
       markersRef.current.push(marker);
     });
-  }, [isMapLoaded, selectedRiskLevelFilter]);
+  }, [isMapLoaded, selectedRiskLevelFilter, hotspots]);
 
   // Fly map when selected location changes
   useEffect(() => {
@@ -167,11 +207,10 @@ export const RiskPage: React.FC = () => {
   }, [selectedLocation]);
 
   // Handle Run Analysis
-  const handleRunAnalysis = () => {
+  const handleRunAnalysis = async () => {
     setIsAnalyzing(true);
-    setTimeout(() => {
-      setIsAnalyzing(false);
-    }, 600);
+    await fetchRiskData();
+    setIsAnalyzing(false);
   };
 
   // Helper for KPI icon rendering
@@ -218,7 +257,7 @@ export const RiskPage: React.FC = () => {
             Monitor <span className="text-[#16E0D0]">Climate Risks</span> and Anomalies
           </h1>
           <p className="text-xs lg:text-sm text-gray-200 font-medium max-w-2xl leading-relaxed pt-0.5">
-            Detect abnormal climate patterns, assess risk levels and monitor potential threats across regions and time periods.
+            Detect abnormal climate patterns, assess risk levels and monitor potential threats across regions using GeoJSON hotspots.
           </p>
         </div>
 
@@ -293,7 +332,7 @@ export const RiskPage: React.FC = () => {
           )}
         </div>
 
-        {/* Variable Selector (Col Span 2.5) */}
+        {/* Variable Selector (Col Span 2) */}
         <div className="lg:col-span-2 relative">
           <button
             onClick={() => setShowVarDropdown(!showVarDropdown)}
@@ -330,7 +369,7 @@ export const RiskPage: React.FC = () => {
           )}
         </div>
 
-        {/* Time Range Selector (Col Span 2.5) */}
+        {/* Time Range Selector (Col Span 2) */}
         <div className="lg:col-span-2 relative">
           <button
             onClick={() => setShowTimeDropdown(!showTimeDropdown)}
@@ -367,7 +406,7 @@ export const RiskPage: React.FC = () => {
           )}
         </div>
 
-        {/* Anomaly Type Selector (Col Span 2.5) */}
+        {/* Anomaly Type Selector (Col Span 3) */}
         <div className="lg:col-span-3 relative">
           <button
             onClick={() => setShowTypeDropdown(!showTypeDropdown)}
@@ -432,6 +471,7 @@ export const RiskPage: React.FC = () => {
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   Anomaly Detection
+                  {isLive ? <LiveBadge label="LIVE — /risk/anomalies" /> : <DemoBadge label="DEMO — Sample" />}
                 </h3>
                 <p className="text-xs text-gray-300">{selectedVariable} anomalies over time with risk thresholds</p>
               </div>
@@ -479,7 +519,6 @@ export const RiskPage: React.FC = () => {
                     return [val, name];
                   }}
                 />
-                {/* High Risk Threshold Line */}
                 <ReferenceLine
                   y={28}
                   stroke="#FF3B3B"
@@ -487,7 +526,6 @@ export const RiskPage: React.FC = () => {
                   strokeWidth={1.5}
                   label={{ value: 'High Risk Threshold', fill: '#FF3B3B', fontSize: 10, position: 'insideTopRight' }}
                 />
-                {/* Expected Baseline Line */}
                 <Line
                   type="monotone"
                   dataKey="expectedTemp"
@@ -495,7 +533,6 @@ export const RiskPage: React.FC = () => {
                   strokeWidth={2}
                   dot={{ r: 3, fill: '#16E0D0' }}
                 />
-                {/* Actual Temperature Line */}
                 <Line
                   type="monotone"
                   dataKey="actualTemp"
@@ -503,7 +540,6 @@ export const RiskPage: React.FC = () => {
                   strokeWidth={1.5}
                   dot={{ r: 2, fill: '#fff' }}
                 />
-                {/* Red Anomaly Points */}
                 <Scatter dataKey="anomalyVal" fill="#FF3B3B" shape="circle" />
               </ComposedChart>
             </ResponsiveContainer>
@@ -539,7 +575,10 @@ export const RiskPage: React.FC = () => {
                 <ShieldAlert className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-white">Geospatial Risk Map</h3>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  Geospatial Risk Map
+                  {hotspots ? <LiveBadge label="GeoJSON Hotspots" /> : null}
+                </h3>
                 <p className="text-xs text-gray-300">Regional risk levels and anomaly distribution</p>
               </div>
             </div>
@@ -582,7 +621,7 @@ export const RiskPage: React.FC = () => {
           <div className="relative w-full h-[230px] md:h-[250px] rounded-xl overflow-hidden border border-white/15 bg-[#03151E]">
             <div ref={mapContainerRef} className="w-full h-full" />
 
-            {/* Map Legend Overlay (Top Right of Map) */}
+            {/* Map Legend Overlay */}
             <div className="absolute top-3 right-3 bg-black/75 backdrop-blur-md border border-white/20 rounded-xl p-2.5 z-10 space-y-1.5 text-[10px] pointer-events-none shadow-xl">
               <div className="flex items-center space-x-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-[#FF3B3B] shadow-[0_0_6px_#FF3B3B]" />
@@ -602,7 +641,7 @@ export const RiskPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Zoom Controls (Bottom Right of Map) */}
+            {/* Zoom Controls */}
             <div className="absolute bottom-3 right-3 flex flex-col space-y-1 z-10">
               <button
                 onClick={() => mapInstanceRef.current?.zoomIn()}
@@ -621,9 +660,9 @@ export const RiskPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 4. SECONDARY ANALYTICS ROW (RISK DISTRIBUTION, ANOMALY TYPES, RECENT ANOMALIES - 33%/33%/34%) */}
+      {/* 4. SECONDARY ANALYTICS ROW */}
       <div className={`grid grid-cols-1 lg:grid-cols-12 gap-6 transition-opacity duration-300 ${isAnalyzing ? 'opacity-50' : 'opacity-100'}`}>
-        {/* Panel 1: Risk Level Distribution (4 of 12 cols ~ 33%) */}
+        {/* Panel 1: Risk Level Distribution */}
         <div className="lg:col-span-4 glass-panel p-5 md:p-6 flex flex-col justify-between shadow-2xl min-h-[290px]">
           <div className="flex items-center space-x-3 mb-2">
             <div className="w-8 h-8 rounded-xl bg-[#16E0D0]/15 flex items-center justify-center text-[#16E0D0]">
@@ -635,7 +674,6 @@ export const RiskPage: React.FC = () => {
           </div>
 
           <div className="flex items-center justify-between my-auto">
-            {/* Donut Chart Canvas */}
             <div className="w-[140px] h-[140px] relative flex items-center justify-center">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -664,12 +702,11 @@ export const RiskPage: React.FC = () => {
                 </PieChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
-                <span className="text-xl font-extrabold text-white leading-none">12</span>
+                <span className="text-xl font-extrabold text-white leading-none">{anomalies.length}</span>
                 <span className="text-[9px] uppercase tracking-wider text-gray-400 mt-0.5">Total Events</span>
               </div>
             </div>
 
-            {/* Right Side Legend */}
             <div className="flex-1 pl-4 space-y-2 text-xs">
               {MOCK_RISK_DISTRIBUTION.map((seg) => (
                 <div key={seg.name} className="flex items-center justify-between text-gray-200">
@@ -687,7 +724,7 @@ export const RiskPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Panel 2: Anomaly Types (4 of 12 cols ~ 33%) */}
+        {/* Panel 2: Anomaly Types */}
         <div className="lg:col-span-4 glass-panel p-5 md:p-6 flex flex-col justify-between shadow-2xl min-h-[290px]">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center space-x-3">
@@ -739,7 +776,7 @@ export const RiskPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Panel 3: Recent Anomalies Table (4 of 12 cols ~ 34%) */}
+        {/* Panel 3: Recent Anomalies Table */}
         <div className="lg:col-span-4 glass-panel p-5 md:p-6 flex flex-col justify-between shadow-2xl min-h-[290px]">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center space-x-3">
@@ -769,7 +806,7 @@ export const RiskPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {MOCK_RECENT_ANOMALIES.map((row) => (
+                {anomalies.map((row: any) => (
                   <tr key={row.id} className="hover:bg-white/5 transition-colors">
                     <td className="py-2 text-gray-300 font-mono text-[11px]">{row.date}</td>
                     <td className="py-2 text-white font-medium">{row.location}</td>

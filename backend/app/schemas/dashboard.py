@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 class ClimateMetricsSchema(BaseModel):
     temperature: float
@@ -74,3 +74,4 @@ class DashboardSummaryResponse(BaseModel):
     trendData: List[TrendPointSchema]
     modelStatuses: List[ModelStatusItemSchema]
     recentIntelligence: List[IntelligenceEventSchema]
+    provenance: Optional[Dict[str, Any]] = None

@@ -1,9 +1,14 @@
+import os
+import pandas as pd
 from typing import List, Dict, Any
 
 class RiskService:
     @staticmethod
     def get_anomalies() -> List[dict]:
-        return [
+        csv_path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "data", "samples", "chennai_monthly_1980_2023.csv"
+        )
+        anomalies = [
             {
                 "id": "anom-1",
                 "date": "Oct 02, 2026",
@@ -49,6 +54,20 @@ class RiskService:
                 "anomalyScore": 0.55
             }
         ]
+
+        if os.path.exists(csv_path):
+            try:
+                df = pd.read_csv(csv_path)
+                if not df.empty:
+                    # Enrich Chennai anomaly with CSV recent max temperature
+                    max_temp = float(df['temperature'].max())
+                    mean_temp = float(df['temperature'].mean())
+                    anomalies[0]['observedValue'] = round(max_temp, 1)
+                    anomalies[0]['expectedValue'] = round(mean_temp, 1)
+            except Exception:
+                pass
+
+        return anomalies
 
     @staticmethod
     def get_geojson_hotspots() -> dict:
@@ -117,5 +136,10 @@ class RiskService:
 
         return {
             "type": "FeatureCollection",
-            "features": features
+            "features": features,
+            "provenance": {
+                "source": "sample_csv",
+                "snapshot": "2026-10-07",
+                "sha": "demo-sample"
+            }
         }

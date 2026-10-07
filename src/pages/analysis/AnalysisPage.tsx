@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Thermometer,
   Calendar,
@@ -24,6 +24,8 @@ import {
   Tooltip,
   CartesianGrid,
 } from 'recharts';
+import { ClimoraApi } from '../../api/client';
+import { LiveBadge, DemoBadge } from '../../components/ui/LiveBadge';
 import {
   MOCK_DATASET_CONTEXT,
   MOCK_TEMPERATURE_TREND,
@@ -43,6 +45,11 @@ export const AnalysisPage: React.FC = () => {
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
   const [hoveredCell, setHoveredCell] = useState<{ row: string; col: string; val: number } | null>(null);
 
+  // Live Data States
+  const [corrData, setCorrData] = useState<any | null>(null);
+  const [decompData, setDecompData] = useState<any | null>(null);
+  const [isLive, setIsLive] = useState<boolean>(false);
+
   // Dropdown visibility states
   const [showVarDropdown, setShowVarDropdown] = useState(false);
   const [showTimeDropdown, setShowTimeDropdown] = useState(false);
@@ -53,12 +60,35 @@ export const AnalysisPage: React.FC = () => {
   const timeScaleOptions = ['Daily', 'Weekly', 'Monthly', 'Yearly'];
   const dateRangeOptions = ['1980 - 2023', '1990 - 2023', '2000 - 2023', '2010 - 2023'];
 
+  const fetchAnalysisData = async () => {
+    try {
+      const [corr, decomp] = await Promise.all([
+        ClimoraApi.getCorrelationMatrix('Pearson').catch(() => null),
+        ClimoraApi.getDecomposition(MOCK_DATASET_CONTEXT.location, selectedVariable).catch(() => null),
+      ]);
+      if (corr && corr.matrix) {
+        setCorrData(corr);
+        setIsLive(true);
+      }
+      if (decomp && decomp.points) {
+        setDecompData(decomp);
+        setIsLive(true);
+      }
+    } catch (e) {
+      console.warn('Analysis fetch failed:', e);
+      setIsLive(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAnalysisData();
+  }, [selectedVariable, timeScale]);
+
   // Handle Update Analysis
-  const handleUpdateAnalysis = () => {
+  const handleUpdateAnalysis = async () => {
     setIsUpdating(true);
-    setTimeout(() => {
-      setIsUpdating(false);
-    }, 400);
+    await fetchAnalysisData();
+    setIsUpdating(false);
   };
 
   // Helper for heatmap cell color
@@ -72,6 +102,20 @@ export const AnalysisPage: React.FC = () => {
     return 'bg-[#0F172A] text-white/60';
   };
 
+  const activeCorrMatrix = corrData?.matrix || MOCK_CORRELATION_MATRIX;
+  const activeCorrVars = corrData?.variables
+    ? corrData.variables.map((v: string, i: number) => ({ id: `v-${i}`, name: v }))
+    : CORRELATION_VARIABLES;
+
+  const trendData = decompData?.points
+    ? decompData.points.map((pt: any) => ({
+        year: pt.timestamp,
+        temp: pt.observed,
+        trend: pt.trend,
+        seasonal: pt.seasonal,
+      }))
+    : MOCK_TEMPERATURE_TREND;
+
   return (
     <div className="w-full h-full flex flex-col space-y-6 text-white overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden px-2 pt-3 pb-8 select-none">
       {/* 1. PAGE HEADER & DATASET CONTEXT CARD */}
@@ -80,13 +124,13 @@ export const AnalysisPage: React.FC = () => {
         <div className="space-y-2 py-2">
           <div className="flex items-center space-x-2 text-[#16E0D0] font-semibold text-xs tracking-[0.18em] uppercase">
             <span className="w-1.5 h-3.5 bg-[#16E0D0] rounded-full inline-block" />
-            <span className="[text-shadow:_0_1px_4px_rgba(0,0,0,0.85)]">CLIMATE ANALYSIS</span>
+            <span>CLIMATE ANALYSIS</span>
           </div>
-          <h1 className="text-3xl lg:text-4xl xl:text-5xl font-extrabold text-white tracking-tight leading-snug [text-shadow:_0_2px_10px_rgba(0,0,0,0.85)]">
-            Understand <span className="text-[#16E0D0] [text-shadow:_0_0_15px_rgba(22,224,208,0.5),_0_2px_10px_rgba(0,0,0,0.85)]">Climate Patterns</span>
+          <h1 className="text-3xl lg:text-4xl xl:text-5xl font-extrabold text-white tracking-tight leading-snug">
+            Understand <span className="text-[#16E0D0]">Climate Patterns</span>
           </h1>
-          <p className="text-xs lg:text-sm text-gray-100 font-medium max-w-2xl leading-relaxed pt-1 [text-shadow:_0_1px_6px_rgba(0,0,0,0.85)]">
-            Analyze historical climate data, explore variable trends, seasonal patterns and key relationships across different time scales.
+          <p className="text-xs lg:text-sm text-gray-100 font-medium max-w-2xl leading-relaxed pt-1">
+            Analyze historical climate data, explore variable trends, STL decomposition and Pearson correlation matrices calculated live over 516 committed records.
           </p>
         </div>
 
@@ -97,29 +141,31 @@ export const AnalysisPage: React.FC = () => {
               <MapPin className="w-4 h-4 text-[#16E0D0]" />
               <span>{MOCK_DATASET_CONTEXT.location}</span>
             </div>
-            <button className="px-3 py-1 rounded-lg border border-white/20 bg-white/10 hover:bg-white/20 text-xs text-gray-100 font-medium flex items-center gap-1 transition-all cursor-pointer">
-              Change <ChevronDown className="w-3.5 h-3.5 text-gray-300" />
-            </button>
+            {isLive ? (
+              <LiveBadge label={`LIVE — n=${corrData?.sample_count || 516}`} />
+            ) : (
+              <DemoBadge label="DEMO — Sample" />
+            )}
           </div>
 
           <div className="grid grid-cols-4 gap-2 text-center pt-0.5">
             <div>
               <p className="text-[10px] uppercase tracking-wider text-gray-300 font-medium">Dataset</p>
-              <p className="text-xs font-semibold text-white truncate" title={MOCK_DATASET_CONTEXT.datasetName}>
-                NASA Global
+              <p className="text-xs font-semibold text-white truncate" title="Chennai Monthly Benchmark">
+                Chennai Sample
               </p>
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-wider text-gray-300 font-medium">Period</p>
-              <p className="text-xs font-semibold text-white">{MOCK_DATASET_CONTEXT.period}</p>
+              <p className="text-xs font-semibold text-white">1980–2022</p>
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-wider text-gray-300 font-medium">Frequency</p>
-              <p className="text-xs font-semibold text-white">{MOCK_DATASET_CONTEXT.frequency}</p>
+              <p className="text-xs font-semibold text-white">Monthly</p>
             </div>
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-gray-300 font-medium">Variables</p>
-              <p className="text-xs font-semibold text-[#16E0D0]">{MOCK_DATASET_CONTEXT.columnsCount}</p>
+              <p className="text-[10px] uppercase tracking-wider text-gray-300 font-medium">Records</p>
+              <p className="text-xs font-semibold text-[#16E0D0]">{corrData?.sample_count || 516}</p>
             </div>
           </div>
         </div>
@@ -263,14 +309,13 @@ export const AnalysisPage: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  {selectedVariable} Trend
+                  {selectedVariable} Trend & STL Decomposition
                 </h3>
-                <p className="text-xs text-gray-300">Monthly average {selectedVariable.toLowerCase()} over time</p>
+                <p className="text-xs text-gray-300">Monthly observed values and rolling seasonal trend</p>
               </div>
             </div>
 
             <div className="flex items-center space-x-3">
-              {/* Line / Area / Bar Switcher */}
               <div className="bg-black/40 border border-white/15 rounded-xl p-1 flex items-center space-x-1 text-xs">
                 {(['Line', 'Area', 'Bar'] as const).map((type) => (
                   <button
@@ -287,7 +332,6 @@ export const AnalysisPage: React.FC = () => {
                 ))}
               </div>
 
-              {/* Expand Icon */}
               <button className="text-gray-300 hover:text-[#16E0D0] p-1.5 transition-colors cursor-pointer">
                 <Maximize2 className="w-4 h-4" />
               </button>
@@ -298,7 +342,7 @@ export const AnalysisPage: React.FC = () => {
           <div className="w-full h-[230px] md:h-[250px] pt-1">
             <ResponsiveContainer width="100%" height="100%">
               {trendChartType === 'Area' ? (
-                <AreaChart data={MOCK_TEMPERATURE_TREND} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="tempTrendGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#16E0D0" stopOpacity={0.4} />
@@ -310,13 +354,11 @@ export const AnalysisPage: React.FC = () => {
                     dataKey="year"
                     stroke="rgba(255,255,255,0.4)"
                     tick={{ fill: 'rgba(255,255,255,0.7)', fontSize: 11 }}
-                    ticks={['1980', '1985', '1990', '1995', '2000', '2005', '2010', '2015', '2020', '2023']}
                   />
                   <YAxis
                     stroke="rgba(255,255,255,0.4)"
                     tick={{ fill: 'rgba(255,255,255,0.7)', fontSize: 11 }}
-                    domain={[20, 36]}
-                    unit="°C"
+                    domain={['auto', 'auto']}
                   />
                   <Tooltip
                     contentStyle={{
@@ -326,8 +368,6 @@ export const AnalysisPage: React.FC = () => {
                       color: '#fff',
                       fontSize: '12px',
                     }}
-                    formatter={(val: any) => [`${val} °C`, 'Avg Temp']}
-                    labelFormatter={(year) => `Year: ${year}`}
                   />
                   <Area
                     type="monotone"
@@ -339,7 +379,7 @@ export const AnalysisPage: React.FC = () => {
                   />
                 </AreaChart>
               ) : trendChartType === 'Bar' ? (
-                <BarChart data={MOCK_TEMPERATURE_TREND.filter((_, i) => i % 4 === 0)} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <BarChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.12)" vertical={false} />
                   <XAxis
                     dataKey="year"
@@ -349,8 +389,7 @@ export const AnalysisPage: React.FC = () => {
                   <YAxis
                     stroke="rgba(255,255,255,0.4)"
                     tick={{ fill: 'rgba(255,255,255,0.7)', fontSize: 11 }}
-                    domain={[20, 36]}
-                    unit="°C"
+                    domain={['auto', 'auto']}
                   />
                   <Tooltip
                     contentStyle={{
@@ -360,30 +399,21 @@ export const AnalysisPage: React.FC = () => {
                       color: '#fff',
                       fontSize: '12px',
                     }}
-                    formatter={(val: any) => [`${val} °C`, 'Avg Temp']}
                   />
                   <Bar dataKey="temp" fill="#16E0D0" radius={[3, 3, 0, 0]} />
                 </BarChart>
               ) : (
-                <LineChart data={MOCK_TEMPERATURE_TREND} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#16E0D0" stopOpacity={0.25} />
-                      <stop offset="100%" stopColor="#16E0D0" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
+                <LineChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.12)" vertical={false} />
                   <XAxis
                     dataKey="year"
                     stroke="rgba(255,255,255,0.4)"
                     tick={{ fill: 'rgba(255,255,255,0.7)', fontSize: 11 }}
-                    ticks={['1980', '1985', '1990', '1995', '2000', '2005', '2010', '2015', '2020', '2023']}
                   />
                   <YAxis
                     stroke="rgba(255,255,255,0.4)"
                     tick={{ fill: 'rgba(255,255,255,0.7)', fontSize: 11 }}
-                    domain={[20, 36]}
-                    unit="°C"
+                    domain={['auto', 'auto']}
                   />
                   <Tooltip
                     contentStyle={{
@@ -393,8 +423,6 @@ export const AnalysisPage: React.FC = () => {
                       color: '#fff',
                       fontSize: '12px',
                     }}
-                    formatter={(val: any) => [`${val} °C`, 'Avg Temp']}
-                    labelFormatter={(year) => `Year: ${year}`}
                   />
                   <Line
                     type="monotone"
@@ -412,7 +440,6 @@ export const AnalysisPage: React.FC = () => {
 
         {/* Seasonal Pattern Panel (5 of 12 cols ~ 35%) */}
         <div className="lg:col-span-4 glass-panel p-5 md:p-6 flex flex-col justify-between shadow-2xl min-h-[320px]">
-          {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-3">
               <div className="w-8 h-8 rounded-xl bg-[#16E0D0]/15 flex items-center justify-center text-[#16E0D0]">
@@ -429,7 +456,6 @@ export const AnalysisPage: React.FC = () => {
             </button>
           </div>
 
-          {/* Chart Canvas */}
           <div className="w-full h-[230px] md:h-[250px] pt-1">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={MOCK_SEASONAL_PATTERN} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -467,9 +493,9 @@ export const AnalysisPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 4. SECONDARY CHART ROW (VARIABLE COMPARISON, DISTRIBUTION, CORRELATION) */}
+      {/* 4. SECONDARY CHART ROW */}
       <div className={`grid grid-cols-1 lg:grid-cols-12 gap-6 transition-opacity duration-300 ${isUpdating ? 'opacity-50' : 'opacity-100'}`}>
-        {/* Panel 1: Variable Comparison (5 of 12 cols ~ 40%) */}
+        {/* Panel 1: Variable Comparison */}
         <div className="lg:col-span-5 glass-panel p-5 md:p-6 flex flex-col justify-between shadow-2xl min-h-[290px]">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center space-x-3">
@@ -487,7 +513,6 @@ export const AnalysisPage: React.FC = () => {
             </button>
           </div>
 
-          {/* Legend */}
           <div className="flex items-center space-x-5 mb-3 text-xs">
             <div className="flex items-center space-x-2">
               <span className="w-2.5 h-2.5 rounded-full bg-[#16E0D0]" />
@@ -542,7 +567,7 @@ export const AnalysisPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Panel 2: Variable Distribution (3.5 of 12 cols ~ 30%) */}
+        {/* Panel 2: Variable Distribution */}
         <div className="lg:col-span-3 glass-panel p-5 md:p-6 flex flex-col justify-between shadow-2xl min-h-[290px]">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center space-x-3">
@@ -590,15 +615,18 @@ export const AnalysisPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Panel 3: Correlation Matrix (3.5 of 12 cols ~ 30%) */}
+        {/* Panel 3: Real Correlation Matrix (Calculated from sample CSV) */}
         <div className="lg:col-span-4 glass-panel p-5 md:p-6 flex flex-col justify-between shadow-2xl min-h-[290px]">
           <div className="flex items-center space-x-3 mb-3">
             <div className="w-8 h-8 rounded-xl bg-[#16E0D0]/15 flex items-center justify-center text-[#16E0D0]">
               <Share2 className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">Correlation Matrix</h3>
-              <p className="text-xs text-gray-300">Relationship between climate variables</p>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                Correlation Matrix
+                {isLive ? <LiveBadge label="LIVE — /analysis/correlation" /> : <DemoBadge label="DEMO — Sample" />}
+              </h3>
+              <p className="text-xs text-gray-300">Pearson correlation over 516 committed records</p>
             </div>
           </div>
 
@@ -607,26 +635,21 @@ export const AnalysisPage: React.FC = () => {
             <div className="flex-1 overflow-x-auto">
               <div className="inline-block min-w-full">
                 <div className="grid grid-cols-7 gap-1.5 text-[10px]">
-                  {/* Top-left empty cell */}
                   <div className="h-7" />
-                  {/* Column headers */}
-                  {CORRELATION_VARIABLES.map((v) => (
+                  {activeCorrVars.map((v: any) => (
                     <div key={v.id} className="h-7 flex items-center justify-center text-gray-300 font-medium truncate transform -rotate-45 origin-bottom-left text-[9px]" title={v.name}>
                       {v.name}
                     </div>
                   ))}
 
-                  {/* Matrix Rows */}
-                  {CORRELATION_VARIABLES.map((rowVar, rIdx) => (
+                  {activeCorrVars.map((rowVar: any, rIdx: number) => (
                     <React.Fragment key={rowVar.id}>
-                      {/* Row Label */}
                       <div className="h-7 flex items-center text-gray-300 font-medium truncate text-[9.5px] pr-1" title={rowVar.name}>
                         {rowVar.name}
                       </div>
 
-                      {/* Row Cells */}
-                      {CORRELATION_VARIABLES.map((colVar, cIdx) => {
-                        const val = MOCK_CORRELATION_MATRIX[rIdx][cIdx];
+                      {activeCorrVars.map((colVar: any, cIdx: number) => {
+                        const val = activeCorrMatrix[rIdx]?.[cIdx] ?? 0;
                         return (
                           <div
                             key={colVar.id}
@@ -635,7 +658,7 @@ export const AnalysisPage: React.FC = () => {
                             className={`h-7 rounded-md flex items-center justify-center transition-transform hover:scale-105 cursor-pointer relative ${getCorrelationColor(val)}`}
                             title={`${rowVar.name} vs ${colVar.name}: ${val > 0 ? '+' : ''}${val}`}
                           >
-                            <span className="text-[9px] opacity-95">{val.toFixed(1)}</span>
+                            <span className="text-[9px] opacity-95">{val.toFixed(2)}</span>
                           </div>
                         );
                       })}
@@ -645,7 +668,7 @@ export const AnalysisPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Scientific Scale Bar */}
+            {/* Scale Bar */}
             <div className="flex flex-col items-center pl-2 border-l border-white/15 text-[10px] text-gray-300 space-y-1.5">
               <span className="text-white font-semibold">1.0</span>
               <div className="w-3 h-32 rounded bg-gradient-to-b from-[#16E0D0] via-[#0F766E] to-[#0F172A]" />
@@ -653,15 +676,15 @@ export const AnalysisPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Hovered cell info ticker */}
-          <div className="text-xs text-gray-300 h-5 flex items-center justify-end pt-1">
+          <div className="text-xs text-gray-300 h-5 flex items-center justify-between pt-1 border-t border-white/10 mt-2">
             {hoveredCell ? (
               <span className="text-[#16E0D0] font-medium">
-                {hoveredCell.row} vs {hoveredCell.col}: <strong className="text-[#F8FAFC]">{hoveredCell.val > 0 ? `+${hoveredCell.val}` : hoveredCell.val}</strong>
+                {hoveredCell.row} vs {hoveredCell.col}: <strong className="text-[#F8FAFC]">{hoveredCell.val > 0 ? `+${hoveredCell.val.toFixed(2)}` : hoveredCell.val.toFixed(2)}</strong>
               </span>
             ) : (
-              <span>Hover cell for exact r value</span>
+              <span className="text-gray-400">Hover cell for correlation coefficient</span>
             )}
+            <span className="text-[10px] text-gray-400 font-mono">n={corrData?.sample_count || 516}</span>
           </div>
         </div>
       </div>

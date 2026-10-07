@@ -10,7 +10,7 @@ import { SystemPage } from './pages/system/SystemPage';
 import type { NavItemId } from './types';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<NavItemId>('explain');
+  const [activeTab, setActiveTab] = useState<NavItemId>('home');
   const [activeLocation, setActiveLocation] = useState('Chennai, India');
 
   const handleSearch = (query: string) => {
@@ -36,7 +36,7 @@ export function App() {
       case 'system':
         return <SystemPage />;
       default:
-        return <OverviewPage />;
+        return <OverviewPage onNavigateTab={(id) => setActiveTab(id)} />;
     }
   };
 

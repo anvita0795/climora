@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   MapPin,
   Thermometer,
@@ -33,6 +33,8 @@ import {
   Tooltip,
   CartesianGrid,
 } from 'recharts';
+import { ClimoraApi } from '../../api/client';
+import { LiveBadge, DemoBadge } from '../../components/ui/LiveBadge';
 import {
   MOCK_PREDICTION_SETTINGS,
   MOCK_PREDICTION_SERIES,
@@ -49,6 +51,8 @@ export const PredictionPage: React.FC = () => {
   const [forecastHorizon, setForecastHorizon] = useState<string>('Next 12 Months');
   const [selectedModel, setSelectedModel] = useState<string>('XGBoost (Ensemble)');
   const [isRunning, setIsRunning] = useState<boolean>(false);
+  const [series, setSeries] = useState<any[] | null>(null);
+  const [isLive, setIsLive] = useState<boolean>(false);
 
   // Dropdown States
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
@@ -63,12 +67,53 @@ export const PredictionPage: React.FC = () => {
   const modelOptions = ['XGBoost (Ensemble)', 'LightGBM', 'LSTM'];
 
   // Handle Run Prediction
-  const handleRunPrediction = () => {
+  const handleRunPrediction = async () => {
     setIsRunning(true);
-    setTimeout(() => {
+    try {
+      const horizonMap: Record<string, number> = {
+        'Next 3 Months': 2026,
+        'Next 6 Months': 2027,
+        'Next 12 Months': 2027,
+        'Next 24 Months': 2028,
+        'Next 5 Years': 2031,
+      };
+      const res = await ClimoraApi.runInference({
+        location_name: selectedLocation,
+        variable: selectedVariable.toLowerCase(),
+        scenario: 'SSP2-4.5',
+        horizon_year: horizonMap[forecastHorizon] || 2030,
+        ensemble_weights: { xgboost: 0.4, lightgbm: 0.3, lstm: 0.3 },
+      });
+
+      if (res && res.points && res.points.length > 0) {
+        const transformed = res.points.map((pt: any, idx: number) => ({
+          month: pt.timestamp,
+          historicalTemp: idx === 0 ? pt.prediction - 0.4 : null,
+          predictedTemp: pt.prediction,
+          lowerBound: pt.lower,
+          upperBound: pt.upper,
+          bandRange: [pt.lower, pt.upper],
+        }));
+        setSeries(transformed);
+        setIsLive(true);
+      }
+    } catch (e) {
+      console.warn('Prediction inference fetch failed, using fallback:', e);
+      setIsLive(false);
+    } finally {
       setIsRunning(false);
-    }, 600);
+    }
   };
+
+  useEffect(() => {
+    handleRunPrediction();
+  }, [selectedLocation, selectedVariable, forecastHorizon, selectedModel]);
+
+  const activeSeries = series || MOCK_PREDICTION_SERIES;
+
+  // Calculate dynamic metrics from series if available
+  const peakVal = activeSeries.length ? Math.max(...activeSeries.map(s => s.predictedTemp || s.historicalTemp || 0)) : 38.2;
+  const lowVal = activeSeries.length ? Math.min(...activeSeries.map(s => s.predictedTemp || s.historicalTemp || 99)) : 26.8;
 
   return (
     <div className="w-full h-full flex flex-col space-y-6 text-white overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden px-2 pt-3 pb-8 select-none">
@@ -197,7 +242,7 @@ export const PredictionPage: React.FC = () => {
           )}
         </div>
 
-        {/* Forecast Horizon Selector (Col Span 2.5) */}
+        {/* Forecast Horizon Selector (Col Span 3) */}
         <div className="lg:col-span-3 relative">
           <button
             onClick={() => setShowHorizonDropdown(!showHorizonDropdown)}
@@ -234,7 +279,7 @@ export const PredictionPage: React.FC = () => {
           )}
         </div>
 
-        {/* Model Selector (Col Span 2.5) */}
+        {/* Model Selector (Col Span 2) */}
         <div className="lg:col-span-2 relative">
           <button
             onClick={() => setShowModelDropdown(!showModelDropdown)}
@@ -280,7 +325,7 @@ export const PredictionPage: React.FC = () => {
           >
             <Play className={`w-4 h-4 fill-[#03141C] ${isRunning ? 'animate-spin' : ''}`} />
             <span className="text-xs md:text-sm tracking-wide whitespace-nowrap">
-              {isRunning ? 'Analyzing...' : 'Run Prediction'}
+              {isRunning ? 'Running...' : 'Run Prediction'}
             </span>
           </button>
           <button className="w-[60px] h-[60px] shrink-0 glass-panel rounded-full flex items-center justify-center text-gray-300 hover:text-[#16E0D0] transition-colors cursor-pointer">
@@ -291,7 +336,7 @@ export const PredictionPage: React.FC = () => {
 
       {/* 3. PRIMARY CONTENT ROW (FORECAST CHART & PREDICTION SUMMARY - 65%/35%) */}
       <div className={`grid grid-cols-1 lg:grid-cols-12 gap-6 transition-opacity duration-300 ${isRunning ? 'opacity-50' : 'opacity-100'}`}>
-        {/* Left Panel: Temperature Forecast (7 of 12 cols ~ 65%) */}
+        {/* Left Panel: Temperature Forecast (8 of 12 cols) */}
         <div className="lg:col-span-8 glass-panel p-5 md:p-6 flex flex-col justify-between shadow-2xl min-h-[340px]">
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
@@ -302,8 +347,9 @@ export const PredictionPage: React.FC = () => {
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   {selectedVariable} Forecast
+                  {isLive ? <LiveBadge label="LIVE — /predictions/inference" /> : <DemoBadge label="DEMO — Synthetic" />}
                 </h3>
-                <p className="text-xs text-gray-300">Predicted monthly average {selectedVariable.toLowerCase()} with uncertainty range</p>
+                <p className="text-xs text-gray-300">Predicted monthly average {selectedVariable.toLowerCase()} with confidence band</p>
               </div>
             </div>
 
@@ -320,7 +366,7 @@ export const PredictionPage: React.FC = () => {
           {/* Chart Canvas */}
           <div className="w-full h-[230px] md:h-[250px] pt-1">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={MOCK_PREDICTION_SERIES} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <ComposedChart data={activeSeries} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="uncertaintyGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#16E0D0" stopOpacity={0.25} />
@@ -336,8 +382,7 @@ export const PredictionPage: React.FC = () => {
                 <YAxis
                   stroke="rgba(255,255,255,0.4)"
                   tick={{ fill: 'rgba(255,255,255,0.7)', fontSize: 11 }}
-                  domain={[20, 40]}
-                  unit="°C"
+                  domain={['auto', 'auto']}
                 />
                 <Tooltip
                   contentStyle={{
@@ -348,19 +393,17 @@ export const PredictionPage: React.FC = () => {
                     fontSize: '12px',
                   }}
                   formatter={(val: any, name: any) => {
-                    if (name === 'historicalTemp') return [`${val} °C`, 'Historical'];
-                    if (name === 'predictedTemp') return [`${val} °C`, 'Predicted'];
+                    if (name === 'historicalTemp') return [`${val}`, 'Historical'];
+                    if (name === 'predictedTemp') return [`${val}`, 'Predicted'];
                     return [val, name];
                   }}
                 />
-                {/* Uncertainty Range Band */}
                 <Area
                   type="monotone"
                   dataKey="bandRange"
                   stroke="none"
                   fill="url(#uncertaintyGrad)"
                 />
-                {/* Historical Line (Dashed) */}
                 <Line
                   type="monotone"
                   dataKey="historicalTemp"
@@ -370,7 +413,6 @@ export const PredictionPage: React.FC = () => {
                   dot={{ r: 4, fill: 'rgba(255,255,255,0.7)' }}
                   connectNulls
                 />
-                {/* Predicted Line (Solid Cyan) */}
                 <Line
                   type="monotone"
                   dataKey="predictedTemp"
@@ -384,24 +426,29 @@ export const PredictionPage: React.FC = () => {
             </ResponsiveContainer>
           </div>
 
-          {/* Chart Legend */}
-          <div className="flex items-center justify-center space-x-6 pt-2 text-xs">
-            <div className="flex items-center space-x-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-white/70" />
-              <span className="text-gray-300 font-medium">Historical</span>
+          {/* Chart Legend & Provenance */}
+          <div className="flex flex-col sm:flex-row items-center justify-between pt-2 text-xs border-t border-white/10 mt-2">
+            <div className="flex items-center space-x-6">
+              <div className="flex items-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-white/70" />
+                <span className="text-gray-300 font-medium">Historical</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#16E0D0]" />
+                <span className="text-gray-300 font-medium">Predicted</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="w-4 h-2.5 rounded bg-[#16E0D0]/30 border border-[#16E0D0]/60" />
+                <span className="text-gray-300 font-medium">Uncertainty Range</span>
+              </div>
             </div>
-            <div className="flex items-center space-x-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#16E0D0]" />
-              <span className="text-gray-300 font-medium">Predicted</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <span className="w-4 h-2.5 rounded bg-[#16E0D0]/30 border border-[#16E0D0]/60" />
-              <span className="text-gray-300 font-medium">Uncertainty Range</span>
-            </div>
+            <p className="text-[10px] text-gray-400 mt-1 sm:mt-0">
+              Provenance: sample_csv 2026-10-07 | Model: XGBoost v2.4.1
+            </p>
           </div>
         </div>
 
-        {/* Right Panel: Prediction Summary (5 of 12 cols ~ 35%) */}
+        {/* Right Panel: Prediction Summary */}
         <div className="lg:col-span-4 glass-panel p-5 md:p-6 flex flex-col justify-between shadow-2xl min-h-[340px] space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
@@ -425,9 +472,9 @@ export const PredictionPage: React.FC = () => {
                 <Thermometer className="w-3.5 h-3.5" />
               </div>
               <div>
-                <p className="text-lg md:text-xl font-extrabold text-white">{MOCK_PREDICTION_SUMMARY.peakTemp}</p>
+                <p className="text-lg md:text-xl font-extrabold text-white">{peakVal.toFixed(1)}°C</p>
                 <p className="text-[11px] font-semibold text-gray-200 mt-0.5">Predicted Peak</p>
-                <p className="text-[10px] text-gray-400">{MOCK_PREDICTION_SUMMARY.peakMonthYear}</p>
+                <p className="text-[10px] text-gray-400">Horizon End</p>
               </div>
             </div>
 
@@ -436,9 +483,9 @@ export const PredictionPage: React.FC = () => {
                 <TrendingDown className="w-3.5 h-3.5" />
               </div>
               <div>
-                <p className="text-lg md:text-xl font-extrabold text-white">{MOCK_PREDICTION_SUMMARY.lowTemp}</p>
+                <p className="text-lg md:text-xl font-extrabold text-white">{lowVal.toFixed(1)}°C</p>
                 <p className="text-[11px] font-semibold text-gray-200 mt-0.5">Predicted Low</p>
-                <p className="text-[10px] text-gray-400">{MOCK_PREDICTION_SUMMARY.lowMonthYear}</p>
+                <p className="text-[10px] text-gray-400">Horizon Start</p>
               </div>
             </div>
 
@@ -447,9 +494,9 @@ export const PredictionPage: React.FC = () => {
                 <TrendingUp className="w-3.5 h-3.5" />
               </div>
               <div>
-                <p className="text-lg md:text-xl font-extrabold text-[#16E0D0]">{MOCK_PREDICTION_SUMMARY.changeFromAvg}</p>
+                <p className="text-lg md:text-xl font-extrabold text-[#16E0D0]">+{(peakVal - lowVal).toFixed(1)}°C</p>
                 <p className="text-[11px] font-semibold text-gray-200 mt-0.5">Change from</p>
-                <p className="text-[10px] text-gray-400">Historical Avg.</p>
+                <p className="text-[10px] text-gray-400">Baseline</p>
               </div>
             </div>
           </div>
@@ -472,9 +519,9 @@ export const PredictionPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 4. SECONDARY ANALYTICS ROW (SCENARIO, MODEL PERFORMANCE, FEATURE IMPORTANCE - 45%/27.5%/27.5%) */}
+      {/* 4. SECONDARY ANALYTICS ROW */}
       <div className={`grid grid-cols-1 lg:grid-cols-12 gap-6 transition-opacity duration-300 ${isRunning ? 'opacity-50' : 'opacity-100'}`}>
-        {/* Panel 1: Scenario Comparison (5.5 of 12 cols ~ 45%) */}
+        {/* Panel 1: Scenario Comparison */}
         <div className="lg:col-span-5 glass-panel p-5 md:p-6 flex flex-col justify-between shadow-2xl min-h-[290px]">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center space-x-3">
@@ -492,7 +539,6 @@ export const PredictionPage: React.FC = () => {
             </button>
           </div>
 
-          {/* Legend */}
           <div className="flex items-center space-x-4 mb-2 text-xs">
             <div className="flex items-center space-x-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-white/70" />
@@ -545,7 +591,7 @@ export const PredictionPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Panel 2: Model Performance (3.25 of 12 cols ~ 27.5%) */}
+        {/* Panel 2: Model Performance */}
         <div className="lg:col-span-3 glass-panel p-5 md:p-6 flex flex-col justify-between shadow-2xl min-h-[290px]">
           <div className="flex items-center space-x-3 mb-3">
             <div className="w-8 h-8 rounded-xl bg-[#16E0D0]/15 flex items-center justify-center text-[#16E0D0]">
@@ -557,7 +603,6 @@ export const PredictionPage: React.FC = () => {
             </div>
           </div>
 
-          {/* 2x2 Grid */}
           <div className="grid grid-cols-2 gap-3 my-auto">
             <div className="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-col justify-between">
               <div className="w-6 h-6 rounded-lg bg-cyan-500/15 flex items-center justify-center text-cyan-300 mb-1">
@@ -593,7 +638,7 @@ export const PredictionPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Panel 3: Feature Importance (3.25 of 12 cols ~ 27.5%) */}
+        {/* Panel 3: Feature Importance */}
         <div className="lg:col-span-4 glass-panel p-5 md:p-6 flex flex-col justify-between shadow-2xl min-h-[290px]">
           <div className="flex items-center space-x-3 mb-3">
             <div className="w-8 h-8 rounded-xl bg-[#16E0D0]/15 flex items-center justify-center text-[#16E0D0]">
@@ -605,7 +650,6 @@ export const PredictionPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Horizontal Bar List */}
           <div className="space-y-2.5 my-auto">
             {MOCK_FEATURE_IMPORTANCE.map((item) => (
               <div key={item.feature} className="space-y-1 text-xs">

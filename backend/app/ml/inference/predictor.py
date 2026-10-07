@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Any
@@ -5,7 +6,6 @@ import uuid
 
 class ClimatePredictorEngine:
     def __init__(self):
-        # Default baseline historical means for climate variables
         self.baselines = {
             "temperature": 28.5,
             "rainfall": 145.0,
@@ -13,6 +13,21 @@ class ClimatePredictorEngine:
             "humidity": 68.0,
             "pressure": 1012.0
         }
+        self.csv_path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "data", "samples", "chennai_monthly_1980_2023.csv"
+        )
+        self._load_baselines_from_csv()
+
+    def _load_baselines_from_csv(self):
+        if os.path.exists(self.csv_path):
+            try:
+                df = pd.read_csv(self.csv_path)
+                last_row = df.iloc[-1]
+                for var in ["temperature", "rainfall", "co2", "humidity", "pressure"]:
+                    if var in last_row:
+                        self.baselines[var] = float(last_row[var])
+            except Exception as e:
+                print(f"Notice: Could not load baselines from CSV ({e})")
         
     def predict_scenario(
         self,
@@ -22,6 +37,8 @@ class ClimatePredictorEngine:
         horizon_year: int,
         ensemble_weights: Dict[str, float]
     ) -> Dict[str, Any]:
+        var_key = variable.lower()
+        
         # Normalize weights
         total_w = sum(ensemble_weights.values()) if ensemble_weights else 1.0
         weights = {k: v / total_w for k, v in ensemble_weights.items()}
@@ -33,10 +50,11 @@ class ClimatePredictorEngine:
             "SSP5-8.5": 0.52   # High emission baseline
         }
         factor = scenario_factors.get(scenario, 0.30)
-        base_val = self.baselines.get(variable.lower(), 28.5)
+        base_val = self.baselines.get(var_key, 28.5)
         
         current_year = 2026
-        years = np.arange(current_year, horizon_year + 1)
+        target_year = max(current_year + 1, horizon_year)
+        years = np.arange(current_year, target_year + 1)
         points = []
         
         for yr in years:
@@ -48,7 +66,6 @@ class ClimatePredictorEngine:
             xgb_pred = trend + (np.sin(yr) * 0.3)
             lgb_pred = trend + (np.cos(yr) * 0.25)
             lstm_pred = trend + (np.sin(yr * 0.5) * 0.4)
-            rf_pred = trend - 0.1
             
             # Weighted ensemble calculation
             weighted_val = (
@@ -72,13 +89,19 @@ class ClimatePredictorEngine:
             
         return {
             "prediction_id": f"pred-{uuid.uuid4().hex[:8]}",
+            "location_name": location_name,
             "variable": variable,
             "scenario": scenario,
             "horizon_year": horizon_year,
             "confidence_level": 0.95,
             "ensemble_weights": weights,
             "points": points,
-            "created_at": "2026-10-04T20:30:00Z"
+            "created_at": "2026-10-07T22:40:00Z",
+            "provenance": {
+                "source": "sample_csv",
+                "snapshot": "2026-10-07",
+                "sha": "demo-sample"
+            }
         }
 
 predictor_engine = ClimatePredictorEngine()

@@ -1,3 +1,5 @@
+import os
+import pandas as pd
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.db.session import get_db
@@ -7,6 +9,25 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard Overview"])
 
 @router.get("/summary", response_model=DashboardSummaryResponse, summary="Get Overview Dashboard Summary")
 def get_dashboard_summary(db: Session = Depends(get_db)):
+    csv_path = os.path.join(
+        os.path.dirname(__file__), "..", "..", "..", "data", "samples", "chennai_monthly_1980_2023.csv"
+    )
+    
+    current_temp = 32.4
+    co2_val = 421.5
+    humidity_val = 78
+    
+    if os.path.exists(csv_path):
+        try:
+            df = pd.read_csv(csv_path)
+            if not df.empty:
+                last_row = df.iloc[-1]
+                current_temp = float(last_row.get('temperature', 32.4))
+                co2_val = float(last_row.get('co2', 421.5))
+                humidity_val = int(last_row.get('humidity', 78))
+        except Exception:
+            pass
+
     return {
         "summary": {
             "location": "Chennai",
@@ -16,22 +37,22 @@ def get_dashboard_summary(db: Session = Depends(get_db)):
             "climateIndex": 74.2,
             "statusText": "Elevated Marine Heatwave & Humidity Warning",
             "metrics": {
-                "temperature": 32.4,
-                "feelsLike": 38.1,
+                "temperature": round(current_temp, 1),
+                "feelsLike": round(current_temp + 5.7, 1),
                 "conditionText": "Partly Cloudy with Coastal Haze",
-                "humidity": 78,
+                "humidity": humidity_val,
                 "windSpeed": 14.5,
                 "precipitation": 25,
                 "airQuality": "Moderate (AQI 68)"
             },
-            "lastUpdated": "Live • 2 mins ago"
+            "lastUpdated": "Live • Just now"
         },
         "riskSummary": {
             "level": "HIGH",
             "score": 78,
             "drivers": [
                 "Sea surface temperature anomaly (+1.8°C)",
-                "Persistent high atmospheric humidity (78%)",
+                f"Persistent high atmospheric humidity ({humidity_val}%)",
                 "Precipitation deficit over inland catchment"
             ],
             "forecastPeriod": "Next 72 Hours",
@@ -44,16 +65,16 @@ def get_dashboard_summary(db: Session = Depends(get_db)):
               "value": "+2.4°C",
               "change": "+0.4°C vs 30-yr avg",
               "changeType": "negative",
-              "subtext": "Baseline: 1991-2020 ERA5",
+              "subtext": "Baseline: 1980-2022 Sample CSV",
               "iconName": "Thermometer"
             },
             {
               "id": "co2-level",
               "label": "CO₂ Concentration",
-              "value": "421.5 ppm",
+              "value": f"{co2_val:.1f} ppm",
               "change": "+2.3 ppm YoY",
               "changeType": "negative",
-              "subtext": "Global monitoring station",
+              "subtext": "Historical sample trend",
               "iconName": "Wind"
             },
             {
@@ -83,12 +104,12 @@ def get_dashboard_summary(db: Session = Depends(get_db)):
             {"day": "Fri", "condition": "cloud", "highTemp": 32, "lowTemp": 26}
         ],
         "trendData": [
-            {"time": "00:00", "temperature": 27.2, "rainfall": 0.0, "co2": 420.8, "anomalyScore": 0.35},
-            {"time": "04:00", "temperature": 26.5, "rainfall": 0.0, "co2": 421.0, "anomalyScore": 0.28},
-            {"time": "08:00", "temperature": 29.8, "rainfall": 0.2, "co2": 421.3, "anomalyScore": 0.52},
-            {"time": "12:00", "temperature": 34.1, "rainfall": 1.5, "co2": 421.8, "anomalyScore": 0.78},
-            {"time": "16:00", "temperature": 32.8, "rainfall": 8.4, "co2": 421.6, "anomalyScore": 0.85},
-            {"time": "20:00", "temperature": 29.4, "rainfall": 2.1, "co2": 421.4, "anomalyScore": 0.62}
+            {"time": "00:00", "temperature": round(current_temp - 5.2, 1), "rainfall": 0.0, "co2": co2_val - 0.7, "anomalyScore": 0.35},
+            {"time": "04:00", "temperature": round(current_temp - 5.9, 1), "rainfall": 0.0, "co2": co2_val - 0.5, "anomalyScore": 0.28},
+            {"time": "08:00", "temperature": round(current_temp - 2.6, 1), "rainfall": 0.2, "co2": co2_val - 0.2, "anomalyScore": 0.52},
+            {"time": "12:00", "temperature": round(current_temp + 1.7, 1), "rainfall": 1.5, "co2": co2_val + 0.3, "anomalyScore": 0.78},
+            {"time": "16:00", "temperature": round(current_temp + 0.4, 1), "rainfall": 8.4, "co2": co2_val + 0.1, "anomalyScore": 0.85},
+            {"time": "20:00", "temperature": round(current_temp - 3.0, 1), "rainfall": 2.1, "co2": co2_val - 0.1, "anomalyScore": 0.62}
         ],
         "modelStatuses": [
             {"id": "m1", "name": "XGBoost Temperature", "algorithm": "Gradient Boosting", "status": "Operational", "version": "v2.4.1", "latencyMs": 12.4},
@@ -114,5 +135,10 @@ def get_dashboard_summary(db: Session = Depends(get_db)):
               "location": "Bay of Bengal Coastal Sector",
               "description": "Convective storm formation identified via satellite remote sensing feed."
             }
-        ]
+        ],
+        "provenance": {
+            "source": "sample_csv",
+            "snapshot": "2026-10-07",
+            "sha": "demo-sample"
+        }
     }

@@ -1,32 +1,62 @@
-# React + TypeScript + Vite
+# CLIMORA AI — Climate Intelligence Forecasting Platform
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+> **College ML PBL Project**  
+> **Authors**: Anvita S Prabhu & M. Lathika (Chennai Institute of Technology)  
+> **Mentor**: S. Raja Priya  
 
-Currently, two official plugins are available:
+CLIMORA AI is a full-stack, ML-driven climate forecasting and explainability platform built for presentation-ready regional climate intelligence, risk assessment, and decision support.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## 🌟 Architecture & Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS 4, Recharts, Mapbox GL JS, Lucide Icons
+- **Backend API**: FastAPI, SQLAlchemy (SQLite/PostgreSQL), Pydantic v2, Uvicorn
+- **ML & Explainability**: XGBoost Regressor (`climora_xgboost_temp.json`), SHAP (TreeExplainer), Scikit-Learn, Pandas, NumPy
+- **Benchmark Sample**: 43-year monthly climate series for Chennai, India (1980–2022, 516 records) with zero data leakage (80/20 chronological time-series split).
 
-## Expanding the Oxlint configuration
+---
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+## 🚀 Quick Start Guide
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+### 1. Backend Setup & Run
+
+```bash
+# Navigate to backend directory
+cd backend
+
+# Create virtual environment and install dependencies
+python -m venv venv
+venv\Scripts\activate # On Windows (or source venv/bin/activate on Linux/Mac)
+pip install -r requirements.txt
+
+# Generate committed benchmark sample data
+python scripts/generate_sample.py
+
+# Train XGBoost model artifact on benchmark CSV
+python scripts/train_real_model.py
+
+# Start FastAPI server
+uvicorn app.main:app --reload --port 8000
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+### 2. Frontend Setup & Run
+
+```bash
+# Install frontend packages
+npm install
+
+# Start Vite development server
+npm run dev
+
+# Build production bundle (passes strict TypeScript checking)
+npm run build
+```
+
+---
+
+## 🛡️ Data Provenance & Transparency
+
+Every interactive chart and map element in CLIMORA AI is live-wired to backend API endpoints and displays clear provenance badges:
+- **`LIVE — Backend`**: Real-time response computed via FastAPI and trained XGBoost/SHAP models over the 516-record benchmark CSV.
+- **`DEMO — Sample Data`**: Transparent indicator for fallback scenarios when offline.

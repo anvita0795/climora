@@ -6,6 +6,7 @@ import { ForecastCard } from '../../components/cards/ForecastCard';
 import { KpiCard } from '../../components/cards/KpiCard';
 import { WatchDemoModal } from '../../components/modals/WatchDemoModal';
 import { ClimoraApi } from '../../api/client';
+import { LiveBadge, DemoBadge } from '../../components/ui/LiveBadge';
 import {
   MOCK_CLIMATE_SUMMARY,
   MOCK_RISK_SUMMARY,
@@ -23,6 +24,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigateTab }) => 
   const [riskData, setRiskData] = useState(MOCK_RISK_SUMMARY);
   const [forecastDays, setForecastDays] = useState(MOCK_FORECAST_DAYS);
   const [kpiData, setKpiData] = useState(MOCK_KPIS);
+  const [isLive, setIsLive] = useState(false);
   const [isWatchDemoOpen, setIsWatchDemoOpen] = useState(false);
 
   useEffect(() => {
@@ -34,9 +36,11 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigateTab }) => 
         if (res.riskSummary) setRiskData(res.riskSummary);
         if (res.forecast) setForecastDays(res.forecast);
         if (res.kpiMetrics) setKpiData(res.kpiMetrics);
+        if (res.provenance) setIsLive(true);
       })
       .catch((err) => {
         console.warn('Backend endpoint unavailable, using mock data:', err);
+        setIsLive(false);
       });
     return () => {
       isMounted = false;
@@ -49,6 +53,9 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigateTab }) => 
       <div className="grid grid-cols-12 gap-8 flex-1 items-start pt-1 overflow-hidden">
         {/* Left Hero Block (Col Span 7) */}
         <div className="col-span-7 flex flex-col justify-start space-y-5 pt-2 pr-2">
+          <div className="flex items-center space-x-2">
+            {isLive ? <LiveBadge label="LIVE — /dashboard/summary" /> : <DemoBadge label="DEMO — Sample" />}
+          </div>
           <HeroSection
             onExploreData={() => onNavigateTab && onNavigateTab('data')}
             onWatchDemo={() => setIsWatchDemoOpen(true)}
